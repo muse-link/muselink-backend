@@ -1,6 +1,16 @@
 // Cargar variables de entorno desde .env
 require('dotenv').config();
 
+const { Pool } = require("pg");
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,   // En Render debe existir
+  ssl: { rejectUnauthorized: false }
+});
+
+
+
+
 const express = require('express');
 const cors = require('cors');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
@@ -83,10 +93,44 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
+
+// =========================
+//  RUTA PARA CREAR SOLICITUDES
+// =========================
+app.post("/solicitudes", async (req, res) => {
+  try {
+    const {
+      cliente_id,
+      titulo,
+      descripcion,
+      tipo_musica,
+      cantidad_ofertas
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO solicitudes
+       (cliente_id, titulo, descripcion, tipo_musica, fecha_evento, cantidad_ofertas, estado)
+       VALUES ($1, $2, $3, $4, NULL, $5, 'abierta')
+       RETURNING *`,
+      [cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas]
+    );
+
+    return res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error("❌ Error creando solicitud:", error);
+    return res.status(500).json({ error: "Error al crear solicitud" });
+  }
+});
+
+
+
+
 // Levantar servidor
 app.listen(port, () => {
   console.log(`Servidor MercadoPago escuchando en http://localhost:${port}`);
 });
+
 
 
 
