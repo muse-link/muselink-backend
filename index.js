@@ -12,8 +12,8 @@ const jwt = require("jsonwebtoken");
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 🔐 Clave para firmar tokens (ponla también en env si quieres)
-const JWT_SECRET = process.env.JWT_SECRET || "cambia_esta_clave_por_una_larga";
+// 🔐 Clave para firmar tokens (ideal moverla a env)
+const JWT_SECRET = process.env.JWT_SECRET || "cambia_esta_clave_por_una_larga_y_secreta";
 
 // Conexión a Postgres
 const pool = new Pool({
@@ -35,9 +35,8 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, message: 'MuseLink backend funcionando ✅' });
 });
 
-
 // =====================================================
-// 🔐 AUTH: REGISTRO Y LOGIN
+// 🔐 AUTH: REGISTRO Y LOGIN CON PERFILES (cliente / artista / admin)
 // =====================================================
 
 // Helper: obtener rol_id desde tabla roles según nombre rol
@@ -53,8 +52,8 @@ async function getRoleIdByName(roleName) {
   return result.rows[0].id;
 }
 
-// Registro: /auth/register
-// body: { nombre, email, password, role }  role = 'cliente' | 'artista' | 'admin'
+// POST /auth/register
+// body: { nombre, email, password, role }
 app.post("/auth/register", async (req, res) => {
   try {
     const { nombre, email, password, role } = req.body;
@@ -75,11 +74,11 @@ app.post("/auth/register", async (req, res) => {
     // 2. Hashear password
     const hash = await bcrypt.hash(password, 10);
 
-    // 3. Resolver rol
+    // 3. Resolver rol (cliente / artista / admin)
     const desiredRole = role || "cliente"; // por defecto cliente
     let roleId = await getRoleIdByName(desiredRole);
     if (!roleId) {
-      // si no existe en BD, fuerza 1 (ajústalo según tu tabla roles)
+      // Si no existe ese rol en la tabla, fuerza rol_id = 1
       roleId = 1;
     }
 
@@ -107,7 +106,7 @@ app.post("/auth/register", async (req, res) => {
   }
 });
 
-// Login: /auth/login
+// POST /auth/login
 // body: { email, password }
 app.post("/auth/login", async (req, res) => {
   try {
@@ -145,47 +144,6 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-// Middleware para rutas protegidas
-function authMiddleware(req, res, next) {
-  const header = req.headers.authorization; // "Bearer token"
-
-  if (!header) {
-    return res.status(401).json({ error: "Falta token" });
-  }
-
-  const [type, token] = header.split(" ");
-  if (type !== "Bearer" || !token) {
-    return res.status(401).json({ error: "Formato de token inválido" });
-  }
-
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.userId = payload.userId;
-    req.roleId = payload.roleId;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: "Token inválido o expirado" });
-  }
-}
-
-// (Opcional) ruta para saber quién soy: /auth/me
-app.get("/auth/me", authMiddleware, async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT id, nombre, email, rol_id FROM usuarios WHERE id = $1",
-      [req.userId]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-    res.json({ user: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error en /auth/me:", error);
-    res.status(500).json({ error: "Error al obtener usuario" });
-  }
-});
-
-
 // =====================================================
 // 💳 Crear preferencia de Mercado Pago
 // =====================================================
@@ -215,9 +173,8 @@ app.post('/create_preference', async (req, res) => {
 });
 
 // =====================================================
-// 🤖 RUTA /api/gemini usando el nuevo cliente Google GenAI
+// 🤖 RUTA /api/gemini usando el cliente Google GenAI
 // =====================================================
-
 app.post("/api/gemini", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -245,7 +202,7 @@ app.post("/api/gemini", async (req, res) => {
 });
 
 // =====================================================
-// 🎵 RUTA PARA CREAR SOLICITUDES (por ahora SIN auth obligatorio)
+// 🎵 RUTA PARA CREAR SOLICITUDES (queda igual que ya la tenías)
 // =====================================================
 app.post("/solicitudes", async (req, res) => {
   try {
@@ -266,7 +223,6 @@ app.post("/solicitudes", async (req, res) => {
     );
 
     return res.json(result.rows[0]);
-
   } catch (error) {
     console.error("❌ Error creando solicitud:", error);
     return res.status(500).json({ error: "Error al crear solicitud" });
