@@ -16,7 +16,8 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "mercadopago": "^2.11.0",
-    "pg": "^8.11.3"
-    
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
   }
 }
