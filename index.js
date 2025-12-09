@@ -69,7 +69,7 @@ app.post("/api/gemini", async (req, res) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+   model: "gemini-1.5-flash-latest",
     });
 
     const result = await model.generateContent(prompt);
@@ -89,4 +89,5 @@ app.listen(port, () => {
   console.log(`Servidor MercadoPago escuchando en http://localhost:${port}`);
 
 });
+
 
