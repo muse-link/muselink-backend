@@ -1,16 +1,16 @@
 // Cargar variables de entorno desde .env
 require('dotenv').config();
-
+import { GoogleGenAI } from "@google/genai";  // NUEVO SDK
 const express = require('express');
 const cors = require('cors');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Cliente de Mercado Pago usando el Access Token desde variables de entorno
 const client = new MercadoPagoConfig({
-  accessToken: process.env.MP_ACCESS_TOKEN, // Debes tener esto en .env
+  accessToken: process.env.MP_ACCESS_TOKEN,
 });
 
 // Middlewares
@@ -22,16 +22,10 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, message: 'MuseLink backend funcionando ✅' });
 });
 
-// Endpoint que usa el frontend para crear la preferencia de pago
+// Endpoint de Mercado Pago
 app.post('/create_preference', async (req, res) => {
   try {
     const { title, quantity, price } = req.body;
-
-    console.log('📩 Solicitud recibida desde el frontend:', {
-      title,
-      quantity,
-      price,
-    });
 
     const body = {
       items: [
@@ -42,13 +36,10 @@ app.post('/create_preference', async (req, res) => {
           currency_id: 'CLP',
         },
       ],
-      // Por ahora SIN back_urls ni auto_return para evitar errores
     };
 
     const preference = new Preference(client);
     const result = await preference.create({ body });
-
-    console.log('✅ Preferencia creada con ID:', result.id);
 
     res.json({ id: result.id });
   } catch (error) {
@@ -57,7 +48,10 @@ app.post('/create_preference', async (req, res) => {
   }
 });
 
-// Ruta para IA con Gemini
+
+// ----------------------
+// 🚀 NUEVA RUTA /api/gemini con SDK nuevo
+// ----------------------
 app.post("/api/gemini", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -66,14 +60,19 @@ app.post("/api/gemini", async (req, res) => {
       return res.status(400).json({ error: "Falta el prompt" });
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-    const model = genAI.getGenerativeModel({
-   model: "gemini-1.5-flash-latest",
+    // Cliente NUEVO
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
     });
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    // Modelo NUEVO que sí existe
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash",   // Puedes usar "gemini-2.5-flash"
+      contents: prompt,
+    });
+
+    // El nuevo SDK devuelve el texto así:
+    const text = result.text;
 
     return res.json({ text });
   } catch (error) {
@@ -83,11 +82,10 @@ app.post("/api/gemini", async (req, res) => {
 });
 
 
-
 // Levantar servidor
 app.listen(port, () => {
   console.log(`Servidor MercadoPago escuchando en http://localhost:${port}`);
-
 });
+
 
 
