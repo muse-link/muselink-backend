@@ -4,7 +4,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
-
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -60,4 +60,5 @@ app.post('/create_preference', async (req, res) => {
 // Levantar servidor
 app.listen(port, () => {
   console.log(`Servidor MercadoPago escuchando en http://localhost:${port}`);
+
 });
