@@ -57,8 +57,36 @@ app.post('/create_preference', async (req, res) => {
   }
 });
 
+// Ruta para IA con Gemini
+app.post("/api/gemini", async (req, res) => {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: "Falta el prompt" });
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+    });
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    return res.json({ text });
+  } catch (error) {
+    console.error("Error en /api/gemini:", error);
+    return res.status(500).json({ error: "Error al generar respuesta con Gemini" });
+  }
+});
+
+
+
 // Levantar servidor
 app.listen(port, () => {
   console.log(`Servidor MercadoPago escuchando en http://localhost:${port}`);
 
 });
+
