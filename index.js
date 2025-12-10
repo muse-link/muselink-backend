@@ -1,7 +1,7 @@
-// ================================
-// Backend MuseLink - CommonJS
-// Compatible con Render
-// ================================
+// ======================================================
+//  MuseLink Backend - Versión FINAL
+//  Sin Gemini - Compatible con Render + Node 22 (CJS)
+// ======================================================
 
 require("dotenv").config();
 const express = require("express");
@@ -10,37 +10,37 @@ const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
+// ------------------------------------------------------
+// Configuración del servidor
+// ------------------------------------------------------
 const app = express();
 const port = process.env.PORT || 10000;
 
 const JWT_SECRET = process.env.JWT_SECRET || "clave_secreta_cambiar";
 
-// ================================
-// PostgreSQL
-// ================================
+// ------------------------------------------------------
+// Conexión a PostgreSQL en Render
+// ------------------------------------------------------
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// ================================
-// Middleware
-// ================================
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// ================================
-// Test
-// ================================
+// ------------------------------------------------------
+// Endpoint de prueba
+// ------------------------------------------------------
 app.get("/", (req, res) => {
   res.send("MuseLink Backend OK 🚀");
 });
 
-// ================================
-// Helper para roles
-// ================================
+// ------------------------------------------------------
+// Función para obtener rol_id desde la tabla roles
+// ------------------------------------------------------
 async function getRoleId(role) {
   const result = await pool.query(
     "SELECT id FROM roles WHERE LOWER(nombre) = LOWER($1)",
@@ -50,18 +50,19 @@ async function getRoleId(role) {
   return result.rows[0].id;
 }
 
-// ================================
-// REGISTRO
-// ================================
+// ------------------------------------------------------
+//  🔐 REGISTRO
+// ------------------------------------------------------
 app.post("/auth/register", async (req, res) => {
   try {
     const { nombre, email, password, role } = req.body;
 
-    // Verificar duplicado
+    // Verificar si ya existe
     const exists = await pool.query(
       "SELECT id FROM usuarios WHERE email = $1",
       [email]
     );
+
     if (exists.rows.length > 0) {
       return res.status(409).json({ error: "El correo ya está registrado" });
     }
@@ -70,7 +71,7 @@ app.post("/auth/register", async (req, res) => {
 
     const resolvedRole = role || "cliente";
     let roleId = await getRoleId(resolvedRole);
-    if (!roleId) roleId = 3; // cliente por defecto
+    if (!roleId) roleId = 3; // valor por defecto (cliente)
 
     const result = await pool.query(
       `INSERT INTO usuarios (nombre, email, password, rol_id)
@@ -95,9 +96,9 @@ app.post("/auth/register", async (req, res) => {
   }
 });
 
-// ================================
-// LOGIN
-// ================================
+// ------------------------------------------------------
+//  🔐 LOGIN
+// ------------------------------------------------------
 app.post("/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -107,14 +108,16 @@ app.post("/auth/login", async (req, res) => {
       [email]
     );
 
-    if (result.rows.length === 0)
+    if (result.rows.length === 0) {
       return res.status(401).json({ error: "Credenciales inválidas" });
+    }
 
     const user = result.rows[0];
 
     const ok = await bcrypt.compare(password, user.password);
-    if (!ok)
+    if (!ok) {
       return res.status(401).json({ error: "Credenciales inválidas" });
+    }
 
     const token = jwt.sign(
       { userId: user.id, roleId: user.rol_id },
@@ -132,12 +135,14 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-// ================================
-// OBTENER SOLICITUDES (TODAS) - ARTISTA
-// ================================
+// ------------------------------------------------------
+//  📌 OBTENER TODAS LAS SOLICITUDES (para ARTISTAS)
+// ------------------------------------------------------
 app.get("/solicitudes", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM solicitudes ORDER BY id DESC");
+    const result = await pool.query(
+      "SELECT * FROM solicitudes ORDER BY id DESC"
+    );
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error obteniendo solicitudes:", err);
@@ -145,26 +150,28 @@ app.get("/solicitudes", async (req, res) => {
   }
 });
 
-// ================================
-// OBTENER SOLICITUDES POR CLIENTE
-// ================================
+// ------------------------------------------------------
+//  📌 OBTENER SOLICITUDES DE UN CLIENTE
+// ------------------------------------------------------
 app.get("/solicitudes/cliente/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
     const result = await pool.query(
       "SELECT * FROM solicitudes WHERE cliente_id = $1 ORDER BY id DESC",
       [id]
     );
+
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ Error obteniendo solicitudes por cliente:", err);
+    console.error("❌ Error obteniendo solicitudes de cliente:", err);
     res.status(500).json({ error: "Error obteniendo solicitudes" });
   }
 });
 
-// ================================
-// CREAR SOLICITUD
-// ================================
+// ------------------------------------------------------
+//  📌 CREAR SOLICITUD
+// ------------------------------------------------------
 app.post("/solicitudes", async (req, res) => {
   try {
     const { cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas } = req.body;
@@ -184,9 +191,9 @@ app.post("/solicitudes", async (req, res) => {
   }
 });
 
-// ================================
-// DESBLOQUEAR SOLICITUD
-// ================================
+// ------------------------------------------------------
+//  🔓 DESBLOQUEAR CONTACTO (artistas)
+// ------------------------------------------------------
 app.post("/solicitudes/:id/unlock", async (req, res) => {
   try {
     const { artista_id } = req.body;
@@ -202,13 +209,13 @@ app.post("/solicitudes/:id/unlock", async (req, res) => {
 
   } catch (err) {
     console.error("❌ Error desbloqueando solicitud:", err);
-    res.status(500).json({ error: "Error desbloqueando solicitud" });
+    res.status(500).json({ error: "Error desbloqueando" });
   }
 });
 
-// ================================
-// SERVIDOR
-// ================================
+// ------------------------------------------------------
+//  🚀 Servidor iniciado
+// ------------------------------------------------------
 app.listen(port, () => {
   console.log(`🔥 MuseLink backend funcionando en http://localhost:${port}`);
 });
