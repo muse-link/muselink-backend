@@ -1,202 +1,214 @@
-import express from "express";
-import cors from "cors";
-import pkg from "pg";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
+// ================================
+// Backend MuseLink - CommonJS
+// Compatible con Render
+// ================================
 
-dotenv.config();
-const { Pool } = pkg;
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const { Pool } = require("pg");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { MercadoPagoConfig, Preference } = require("mercadopago");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const port = process.env.PORT || 10000;
 
-// 🔥 POSTGRES CONNECTION
+const JWT_SECRET = process.env.JWT_SECRET || "clave_secreta_cambiar";
+
+// ================================
+// PostgreSQL
+// ================================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// GENERAR TOKEN
-function generarToken(user) {
-  return jwt.sign(
-    { id: user.id, email: user.email, rol_id: user.rol_id },
-    process.env.JWT_SECRET || "secretkey",
-    { expiresIn: "7d" }
+// ================================
+// Middleware
+// ================================
+app.use(cors());
+app.use(express.json());
+
+// ================================
+// Test
+// ================================
+app.get("/", (req, res) => {
+  res.send("MuseLink Backend OK 🚀");
+});
+
+// ================================
+// Helper para roles
+// ================================
+async function getRoleId(role) {
+  const result = await pool.query(
+    "SELECT id FROM roles WHERE LOWER(nombre) = LOWER($1)",
+    [role]
   );
+  if (result.rows.length === 0) return null;
+  return result.rows[0].id;
 }
 
-// ===========================
-//      AUTH / REGISTER
-// ===========================
+// ================================
+// REGISTRO
+// ================================
 app.post("/auth/register", async (req, res) => {
   try {
     const { nombre, email, password, role } = req.body;
 
-    // Mapeo FRONT role → BD rol_id
-    const roleMap = {
-      cliente: 3,
-      artista: 2
-    };
-    const rol_id = roleMap[role];
-
-    if (!rol_id) {
-      return res.status(400).json({ error: "Rol inválido" });
+    // Verificar duplicado
+    const exists = await pool.query(
+      "SELECT id FROM usuarios WHERE email = $1",
+      [email]
+    );
+    if (exists.rows.length > 0) {
+      return res.status(409).json({ error: "El correo ya está registrado" });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 10);
 
-    const query = `
-      INSERT INTO usuarios (nombre, email, password, rol_id)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, nombre, email, rol_id
-    `;
+    const resolvedRole = role || "cliente";
+    let roleId = await getRoleId(resolvedRole);
+    if (!roleId) roleId = 3; // cliente por defecto
 
-    const result = await pool.query(query, [nombre, email, hashed, rol_id]);
+    const result = await pool.query(
+      `INSERT INTO usuarios (nombre, email, password, rol_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, nombre, email, rol_id`,
+      [nombre, email, hash, roleId]
+    );
+
     const user = result.rows[0];
 
-    return res.json({
-      message: "Usuario creado correctamente",
-      user,
-      token: generarToken(user)
-    });
+    const token = jwt.sign(
+      { userId: user.id, roleId: user.rol_id },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({ user, token });
+
   } catch (err) {
     console.error("❌ Error en /auth/register:", err);
-    return res.status(500).json({ error: err.detail || "Error interno" });
+    res.status(500).json({ error: "Error registrando usuario" });
   }
 });
 
-// ===========================
-//      AUTH / LOGIN
-// ===========================
+// ================================
+// LOGIN
+// ================================
 app.post("/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const query = `SELECT * FROM usuarios WHERE email = $1`;
-    const result = await pool.query(query, [email]);
+    const result = await pool.query(
+      "SELECT * FROM usuarios WHERE email = $1",
+      [email]
+    );
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: "Usuario no encontrado" });
-    }
+    if (result.rows.length === 0)
+      return res.status(401).json({ error: "Credenciales inválidas" });
 
     const user = result.rows[0];
+
     const ok = await bcrypt.compare(password, user.password);
-
     if (!ok)
-      return res.status(401).json({ error: "Contraseña incorrecta" });
+      return res.status(401).json({ error: "Credenciales inválidas" });
 
-    return res.json({
-      message: "Login correcto",
-      user: {
-        id: user.id,
-        nombre: user.nombre,
-        email: user.email,
-        rol_id: user.rol_id
-      },
-      token: generarToken(user)
-    });
+    const token = jwt.sign(
+      { userId: user.id, roleId: user.rol_id },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    delete user.password;
+
+    res.json({ user, token });
+
   } catch (err) {
     console.error("❌ Error en /auth/login:", err);
-    return res.status(500).json({ error: "Error interno" });
+    res.status(500).json({ error: "Error iniciando sesión" });
   }
 });
 
-// ===========================
-//     CREAR SOLICITUD
-// ===========================
+// ================================
+// OBTENER SOLICITUDES (TODAS) - ARTISTA
+// ================================
+app.get("/solicitudes", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM solicitudes ORDER BY id DESC");
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error obteniendo solicitudes:", err);
+    res.status(500).json({ error: "Error obteniendo solicitudes" });
+  }
+});
+
+// ================================
+// OBTENER SOLICITUDES POR CLIENTE
+// ================================
+app.get("/solicitudes/cliente/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM solicitudes WHERE cliente_id = $1 ORDER BY id DESC",
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error obteniendo solicitudes por cliente:", err);
+    res.status(500).json({ error: "Error obteniendo solicitudes" });
+  }
+});
+
+// ================================
+// CREAR SOLICITUD
+// ================================
 app.post("/solicitudes", async (req, res) => {
   try {
     const { cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas } = req.body;
 
-    const query = `
-      INSERT INTO solicitudes (cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, [
-      cliente_id,
-      titulo,
-      descripcion,
-      tipo_musica,
-      cantidad_ofertas
-    ]);
-
-    return res.json({
-      message: "Solicitud creada",
-      solicitud: result.rows[0]
-    });
-  } catch (err) {
-    console.error("❌ Error creando solicitud:", err);
-    return res.status(500).json({ error: "Error creando solicitud" });
-  }
-});
-
-// ===========================
-// LISTAR TODAS (ARTISTA)
-// ===========================
-app.get("/solicitudes", async (req, res) => {
-  try {
-    const query = `SELECT * FROM solicitudes ORDER BY id DESC`;
-    const result = await pool.query(query);
-
-    return res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Error obteniendo solicitudes:", err);
-    return res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// ===========================
-// LISTAR SOLICITUDES DEL CLIENTE
-// ===========================
-app.get("/solicitudes/cliente/:id", async (req, res) => {
-  try {
-    const cliente_id = req.params.id;
-
-    const query = `
-      SELECT * FROM solicitudes
-      WHERE cliente_id = $1
-      ORDER BY id DESC
-    `;
-
-    const result = await pool.query(query, [cliente_id]);
-    return res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Error obteniendo solicitudes por cliente:", err);
-    return res.status(500).json({ error: "Error interno" });
-  }
-});
-
-// ===========================
-// DESBLOQUEAR SOLICITUD
-// ===========================
-app.post("/solicitudes/:id/unlock", async (req, res) => {
-  try {
-    const solicitud_id = req.params.id;
-    const { artista_id } = req.body;
-
-    // Registrar que el artista desbloqueó la solicitud
-    await pool.query(
-      `INSERT INTO solicitudes_desbloqueadas (solicitud_id, artista_id)
-       VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
-      [solicitud_id, artista_id]
+    const result = await pool.query(
+      `INSERT INTO solicitudes (cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas]
     );
 
-    return res.json({ success: true, message: "Solicitud desbloqueada" });
+    res.json(result.rows[0]);
+
   } catch (err) {
-    console.error("❌ Error desbloqueando solicitud:", err);
-    res.status(500).json({ error: "Error al desbloquear" });
+    console.error("❌ Error creando solicitud:", err);
+    res.status(500).json({ error: "Error creando solicitud" });
   }
 });
 
-// ===========================
+// ================================
+// DESBLOQUEAR SOLICITUD
+// ================================
+app.post("/solicitudes/:id/unlock", async (req, res) => {
+  try {
+    const { artista_id } = req.body;
+    const { id } = req.params;
+
+    await pool.query(
+      `INSERT INTO desbloqueos (solicitud_id, artista_id)
+       VALUES ($1, $2)`,
+      [id, artista_id]
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("❌ Error desbloqueando solicitud:", err);
+    res.status(500).json({ error: "Error desbloqueando solicitud" });
+  }
+});
+
+// ================================
 // SERVIDOR
-// ===========================
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () =>
-  console.log(`🔥 MuseLink backend corriendo en http://localhost:${PORT}`)
-);
+// ================================
+app.listen(port, () => {
+  console.log(`🔥 MuseLink backend funcionando en http://localhost:${port}`);
+});
