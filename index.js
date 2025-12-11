@@ -5,7 +5,6 @@ const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
-const { GoogleGenerativeAI } = require("@google/genai");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -26,12 +25,6 @@ const pool = new Pool({
 const mpClient = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN,
 });
-
-// 🤖 Cliente Gemini (si hay API Key)
-let genAI = null;
-if (process.env.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-}
 
 // Middlewares
 app.use(cors());
@@ -186,32 +179,24 @@ app.post("/create_preference", async (req, res) => {
 });
 
 // =====================================================
-// 🤖 /api/gemini – generar texto con Gemini
+// 🤖 /api/gemini – STUB (por ahora sin IA real)
 // =====================================================
+// Esto es solo para que el botón "Mejorar con IA" no rompa nada.
+// Devuelve el mismo texto que recibe.
 app.post("/api/gemini", async (req, res) => {
   try {
     const { prompt } = req.body;
-
     if (!prompt) {
       return res.status(400).json({ error: "Falta el prompt" });
     }
 
-    if (!genAI) {
-      return res
-        .status(500)
-        .json({ error: "GEMINI_API_KEY no está configurada en el servidor" });
-    }
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-
-    return res.json({ text });
+    // Por ahora, devolvemos el mismo texto (sin IA real)
+    return res.json({ text: prompt });
   } catch (error) {
     console.error("❌ Error en /api/gemini:", error);
     return res
       .status(500)
-      .json({ error: "Error al generar respuesta con Gemini" });
+      .json({ error: "Error al procesar la solicitud de IA" });
   }
 });
 
@@ -399,3 +384,4 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
 app.listen(port, () => {
   console.log(`🔥 Backend escuchando en http://localhost:${port}`);
 });
+
