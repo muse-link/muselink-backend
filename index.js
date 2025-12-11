@@ -399,4 +399,3 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
 app.listen(port, () => {
   console.log(`🔥 Backend escuchando en http://localhost:${port}`);
 });
-
