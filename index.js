@@ -205,6 +205,11 @@ app.post("/api/gemini", async (req, res) => {
 // =====================================================
 // POST /solicitudes
 // body: { cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas }
+
+// =====================================================
+// 🎵 SOLICITUDES – CREAR
+// =====================================================
+// POST /solicitudes
 app.post("/solicitudes", async (req, res) => {
   try {
     const {
@@ -233,6 +238,9 @@ app.post("/solicitudes", async (req, res) => {
     return res.status(500).json({ error: "Error al crear solicitud" });
   }
 });
+
+
+
 
 // =====================================================
 // 🎵 SOLICITUDES – LISTAR GENERAL (incluye cantidad de desbloqueos)
@@ -417,5 +425,6 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
 app.listen(port, () => {
   console.log(`🔥 Backend escuchando en http://localhost:${port}`);
 });
+
 
 
