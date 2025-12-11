@@ -1,88 +1,93 @@
 // ===============================
 //     MuseLink Backend (CJS)
+//     SIN GEMINI EN BACKEND
 // ===============================
 
-// Env
 require("dotenv").config();
 
-// Dependencias
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const {
-  GoogleGenerativeAI,
-} = require("@google/generative-ai");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
 
 const app = express();
 const port = process.env.PORT || 10000;
 
-// JWT
 const JWT_SECRET = process.env.JWT_SECRET || "clave_super_secreta_muselink";
 
-// Postgres
+// ===============================
+//   CONEXIÓN A POSTGRES
+// ===============================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// Middleware
+// ===============================
+//   MIDDLEWARES
+// ===============================
 app.use(cors());
 app.use(express.json());
 
-// Health check
+// ===============================
+//   HEALTH CHECK
+// ===============================
+app.get("/", (req, res) => {
+  res.send("MuseLink Backend OK 🚀");
+});
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, message: "MuseLink backend funcionando" });
 });
 
 // ===============================
-//       HELPERS DB
+//   HELPERS
 // ===============================
 async function getRoleIdByName(roleName) {
   const result = await pool.query(
-    "SELECT id FROM roles WHERE LOWER(nombre)=LOWER($1)",
+    "SELECT id FROM roles WHERE LOWER(nombre) = LOWER($1)",
     [roleName]
   );
   return result.rows.length ? result.rows[0].id : null;
 }
 
 // ===============================
-//       AUTH: REGISTER
+//   AUTH: REGISTRO
 // ===============================
 app.post("/auth/register", async (req, res) => {
   try {
     const { nombre, email, password, role } = req.body;
 
-    if (!email || !password)
-      return res.status(400).json({ error: "Email y password requeridos" });
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ error: "Email y password son obligatorios" });
+    }
 
-    // Ver si existe
-    const exists = await pool.query(
-      "SELECT id FROM usuarios WHERE email=$1",
+    const existing = await pool.query(
+      "SELECT id FROM usuarios WHERE email = $1",
       [email]
     );
-    if (exists.rows.length)
-      return res.status(409).json({ error: "Correo ya registrado" });
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: "El correo ya está registrado" });
+    }
 
-    // Hash
     const hash = await bcrypt.hash(password, 10);
 
-    // Rol
-    const desired = role || "cliente";
-    let roleId = await getRoleIdByName(desired);
-    if (!roleId) roleId = 3; // Cliente por defecto
+    const desiredRole = role || "cliente";
+    let roleId = await getRoleIdByName(desiredRole);
+    if (!roleId) roleId = 3; // 3 = cliente por defecto (según tu tabla)
 
-    // Insertar
-    const inserted = await pool.query(
-      `INSERT INTO usuarios(nombre,email,password,rol_id,fecha_registro)
-       VALUES ($1,$2,$3,$4,NOW())
-       RETURNING id,nombre,email,rol_id`,
+    const insert = await pool.query(
+      `INSERT INTO usuarios (nombre, email, password, rol_id, fecha_registro)
+       VALUES ($1, $2, $3, $4, NOW())
+       RETURNING id, nombre, email, rol_id`,
       [nombre, email, hash, roleId]
     );
 
-    const user = inserted.rows[0];
+    const user = insert.rows[0];
 
     const token = jwt.sign(
       { userId: user.id, roleId: user.rol_id },
@@ -98,25 +103,27 @@ app.post("/auth/register", async (req, res) => {
 });
 
 // ===============================
-//        AUTH: LOGIN
+//   AUTH: LOGIN
 // ===============================
 app.post("/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const result = await pool.query(
-      "SELECT * FROM usuarios WHERE email=$1",
+      "SELECT * FROM usuarios WHERE email = $1",
       [email]
     );
 
-    if (!result.rows.length)
+    if (result.rows.length === 0) {
       return res.status(401).json({ error: "Credenciales inválidas" });
+    }
 
     const user = result.rows[0];
 
     const ok = await bcrypt.compare(password, user.password);
-    if (!ok)
+    if (!ok) {
       return res.status(401).json({ error: "Credenciales inválidas" });
+    }
 
     const token = jwt.sign(
       { userId: user.id, roleId: user.rol_id },
@@ -128,13 +135,13 @@ app.post("/auth/login", async (req, res) => {
 
     res.json({ user, token });
   } catch (err) {
-    console.error("❌ Error /auth/login:", err);
+    console.error("❌ Error en /auth/login:", err);
     res.status(500).json({ error: "Error al iniciar sesión" });
   }
 });
 
 // ===============================
-//      CREAR SOLICITUD
+//   CREAR SOLICITUD
 // ===============================
 app.post("/solicitudes", async (req, res) => {
   try {
@@ -148,8 +155,8 @@ app.post("/solicitudes", async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO solicitudes
-        (cliente_id,titulo,descripcion,tipo_musica,fecha_evento,cantidad_ofertas,estado,fecha_creacion)
-       VALUES ($1,$2,$3,$4,NULL,$5,'abierta',NOW())
+       (cliente_id, titulo, descripcion, tipo_musica, fecha_evento, cantidad_ofertas, estado, fecha_creacion)
+       VALUES ($1, $2, $3, $4, NULL, $5, 'abierta', NOW())
        RETURNING *`,
       [cliente_id, titulo, descripcion, tipo_musica, cantidad_ofertas]
     );
@@ -162,18 +169,19 @@ app.post("/solicitudes", async (req, res) => {
 });
 
 // ===============================
-//   GET SOLICITUDES (CON DESBLOQUEOS)
+//   OBTENER SOLICITUDES (ARTISTA)
+//   con cantidad de desbloqueos
 // ===============================
 app.get("/solicitudes", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
         s.*,
-        COALESCE(d.cant_desbloqueos,0) AS desbloqueos
+        COALESCE(d.cant_desbloqueos, 0) AS desbloqueos
       FROM solicitudes s
       LEFT JOIN (
         SELECT solicitud_id, COUNT(*) AS cant_desbloqueos
-        FROM desbloqueos_solicitudes
+        FROM desbloqueos
         GROUP BY solicitud_id
       ) d ON d.solicitud_id = s.id
       ORDER BY s.fecha_creacion DESC
@@ -187,6 +195,25 @@ app.get("/solicitudes", async (req, res) => {
 });
 
 // ===============================
+//   OBTENER SOLICITUDES DE UN CLIENTE
+// ===============================
+app.get("/solicitudes/cliente/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      "SELECT * FROM solicitudes WHERE cliente_id = $1 ORDER BY fecha_creacion DESC",
+      [id]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error obteniendo solicitudes del cliente:", err);
+    res.status(500).json({ error: "No se pudieron obtener solicitudes" });
+  }
+});
+
+// ===============================
 //   DESBLOQUEAR SOLICITUD
 // ===============================
 app.post("/solicitudes/desbloquear", async (req, res) => {
@@ -194,40 +221,20 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
     const { solicitud_id, artista_id } = req.body;
 
     await pool.query(
-      `INSERT INTO desbloqueos_solicitudes (solicitud_id,artista_id,fecha)
-       VALUES ($1,$2,NOW())`,
+      `INSERT INTO desbloqueos (solicitud_id, artista_id, fecha)
+       VALUES ($1, $2, NOW())`,
       [solicitud_id, artista_id]
     );
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("❌ Error al desbloquear:", err);
-    res.status(500).json({ error: "Error al desbloquear solicitud" });
+    console.error("❌ Error desbloqueando solicitud:", err);
+    res.status(500).json({ error: "Error desbloqueando solicitud" });
   }
 });
 
 // ===============================
-//   GEMINI AI
-// ===============================
-app.post("/api/gemini", async (req, res) => {
-  try {
-    const { prompt } = req.body;
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-    const result = await model.generateContent(prompt);
-    const text = await result.response.text();
-
-    res.json({ text });
-  } catch (err) {
-    console.error("❌ Error Gemini:", err);
-    res.status(500).json({ error: "Error generando IA" });
-  }
-});
-
-// ===============================
-//   MERCADO PAGO
+//   MERCADOPAGO - CREAR PREFERENCIA
 // ===============================
 const mpClient = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN,
@@ -254,14 +261,15 @@ app.post("/create_preference", async (req, res) => {
 
     res.json({ id: result.id });
   } catch (err) {
-    console.error("❌ Error MercadoPago:", err);
+    console.error("❌ Error en /create_preference:", err);
     res.status(500).json({ error: "Error creando preferencia" });
   }
 });
 
 // ===============================
-//   START SERVER
+//   INICIAR SERVIDOR
 // ===============================
 app.listen(port, () => {
   console.log(`🔥 MuseLink backend funcionando en http://localhost:${port}`);
 });
+
