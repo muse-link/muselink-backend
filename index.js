@@ -313,12 +313,14 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
 
     if (!artista_id || !solicitud_id) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ error: "Faltan artista_id o solicitud_id" });
+      return res
+        .status(400)
+        .json({ error: "Faltan artista_id o solicitud_id" });
     }
 
     await client.query("BEGIN");
 
-    // 1) Verificar si ya la desbloqueó
+    // 1) Verificar si ya la desbloqueó este artista
     const ya = await client.query(
       `SELECT id FROM desbloqueos 
        WHERE artista_id = $1 AND solicitud_id = $2`,
@@ -329,7 +331,7 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
       return res.status(400).json({ error: "Ya la desbloqueaste" });
     }
 
-    // 2) Ver créditos actuales (columna credits)
+    // 2) Ver créditos actuales (columna credits en usuarios)
     const qCred = await client.query(
       "SELECT credits FROM usuarios WHERE id = $1 FOR UPDATE",
       [artista_id]
@@ -363,11 +365,34 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
       [artista_id]
     );
 
+    // 5) Obtener datos de contacto del cliente de esa solicitud
+    const contactoRes = await client.query(
+      `
+      SELECT u.nombre, u.email
+      FROM solicitudes s
+      JOIN usuarios u ON u.id = s.cliente_id
+      WHERE s.id = $1
+      `,
+      [solicitud_id]
+    );
+
+    let contacto = null;
+    if (contactoRes.rows.length > 0) {
+      const row = contactoRes.rows[0];
+      contacto = {
+        nombre: row.nombre,
+        email: row.email,
+        // si más adelante agregas telefono en usuarios, acá se puede sumar
+        telefono: null,
+      };
+    }
+
     await client.query("COMMIT");
 
     return res.json({
       ok: true,
       nuevosCreditos: qUpdate.rows[0].credits,
+      contacto, // 👈 esto lo usará el frontend para mostrar los datos
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -378,10 +403,19 @@ app.post("/solicitudes/desbloquear", async (req, res) => {
   }
 });
 
+
+
+
+
+
+
+
+
 // =====================================================
 // 🚀 Levantar servidor
 // =====================================================
 app.listen(port, () => {
   console.log(`🔥 Backend escuchando en http://localhost:${port}`);
 });
+
 
